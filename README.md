@@ -6,6 +6,8 @@
 
 The goal of the project is a **testbed for AI agents that process voice recordings**: speech-to-text engines, language models and agents that act on what was said. Each utterance is a self-contained recording, which makes it easy to send the same audio to several agents and **compare their results side by side**. The voice input, speech detection and utterance handling are in place; connecting and comparing agents is the next step (see [Roadmap](#roadmap)).
 
+**RedDot on Android: dictation into any app.** The Android app in `android/` puts the red dot next to any text field on the phone, the way Wispr Flow does. Hold it, speak, let go: a RedDot server on your own computer transcribes the note with Whisper, and the text appears in the field. The server learns your names and jargon from your corrections. Everything runs on hardware you own, for free. See [The Android app and the transcription API](#the-android-app-and-the-transcription-api).
+
 ## Features
 
 - **Push to talk:** hold the dot (mouse, finger or the `R` key) to record; let go to stop.
@@ -15,6 +17,10 @@ The goal of the project is a **testbed for AI agents that process voice recordin
 - **Draggable dot:** pick up the dot while recording and move it around.
 - **Full-screen WebGL:** the dot and lines are drawn by a fragment shader, on desktop and mobile.
 - **Private by design:** recordings stay in the browser. The backend only judges the audio, and saves nothing unless debug recording is switched on.
+- **Android voice bubble:** in any app, the red dot appears while the keyboard is open. Hold it and speak (or tap, speak, tap again), and the transcript is typed into the field.
+- **Whisper on your own computer:** the backend transcribes notes with faster-whisper (`large-v3-turbo`: about 0.2 s for a 7 s note on an RTX 5070 Ti). It speaks OpenAI's transcription API, so other voice apps can use it too.
+- **Learns your words:** a vocabulary list steers Whisper towards your spelling of names and jargon, and corrections you make in the app add to it.
+- **Never loses a note:** the phone keeps every recording, and transcribes it later if the server can't be reached.
 
 ## Architecture
 
@@ -43,6 +49,48 @@ flowchart LR
 3. **Utterances:** a small state machine in the backend turns the verdicts into utterances: 200 ms of speech starts one (plus 300 ms of audio from just before, so the first syllable isn't cut), 700 ms of quiet, letting go or 15 seconds end it.
 4. **Lines:** when an utterance ends, the backend only sends the **numbers of the chunks** it consists of. The browser assembles the audio from the chunks it kept and attaches it to a new line. The audio never has to travel back, and the server stores nothing.
 5. **Playback:** tapping a line plays its audio with the Web Audio API.
+
+### The Android app and the transcription API
+
+```mermaid
+flowchart LR
+  subgraph phone["Android phone"]
+    field["any app's text field"]
+    bubble["BubbleService<br/>accessibility service: the red dot"]
+    rec["Recorder<br/>16 kHz WAV file"]
+    notes[("notes on the phone<br/>audio + text")]
+    field <-- "focus / insert text" --> bubble
+    bubble --> rec --> notes
+  end
+  subgraph pc["Your computer, reached through Tailscale"]
+    api["POST /v1/audio/transcriptions"]
+    whisper["transcriber.py<br/>Whisper large-v3-turbo"]
+    learn["learning.py<br/>vocabulary, replacements"]
+    api --> whisper --> learn
+  end
+  notes -- "WAV" --> api
+  learn -- "text" --> bubble
+  notes -. "your corrections" .-> learn
+```
+
+1. **Tap into a text field in any app.** When the keyboard opens, the red dot appears at the edge of the screen. An accessibility service draws it, as Wispr Flow's Android bubble does, because only accessibility services may see which field is focused in another app and write into it.
+2. **Hold the dot and speak, then let go** (or tap, speak, tap again). The phone records 16 kHz mono WAV straight into a file and saves the note before any network call.
+3. **The server transcribes it.** The note goes to the OpenAI-compatible `POST /v1/audio/transcriptions`. Whisper gets your vocabulary as hints, and replacements learned from your corrections are applied to its text.
+4. **The text goes into the field** at the cursor. If you switched apps meanwhile, it goes to the clipboard instead.
+5. **No server, no problem:** an unreachable server leaves the note waiting on the phone. It is transcribed automatically once there is a connection, and appears in RedDot's notes list.
+6. **Correct a note in the app** and the server compares your version with Whisper's: misheard names become vocabulary, and a fix you make twice becomes an automatic replacement (`learning.py` explains the rules).
+
+### The HTTP API (`/v1`, with `DICTATION_API=1`)
+
+| Request | Body | Answer |
+|---|---|---|
+| `POST /v1/audio/transcriptions` | multipart: `file` (WAV, M4A, Ogg…), optional `language` (`en`, `vi`…), `prompt`, `response_format` (`json`, `text`, `verbose_json`), and RedDot's own `note_id` and `recorded_at` | `{"text", "id", "language", "duration", "model", "whisper_text", "seconds_taken"}` |
+| `GET /v1/models` | | the Whisper model in use, in OpenAI's format |
+| `GET /v1/vocabulary` | | `{"words": [...], "replacements": [{"heard", "meant"}]}` |
+| `POST /v1/vocabulary` | `{"add": [...], "remove": [...], "remove_replacements": [...]}` | as `GET /v1/vocabulary` |
+| `POST /v1/corrections` | `{"original", "corrected", "note_id"}` | `{"fixes", "new_words", "new_replacements"}` |
+
+Other voice apps that accept a custom OpenAI endpoint can use `http://<server>:8090/v1` as their base URL. With the API on, `GET /healthz` also reports whether Whisper is loaded: `{"ok": true, "transcription": {"model", "ready", "device", "error"}}`.
 
 ### The protocol (WebSocket `/ws`)
 
@@ -73,7 +121,23 @@ red-dot/                              the React app (Vite, TypeScript)
         ├── server.py                 /healthz and /ws, origin check, logging
         ├── speech_check.py           is this 100 ms chunk speech?
         ├── utterances.py             cuts the stream into utterances
-        └── requirements.txt
+        ├── dictation_api.py          /v1: transcription, vocabulary, corrections (DICTATION_API=1)
+        ├── transcriber.py            Whisper (faster-whisper), loaded once
+        ├── learning.py               vocabulary, replacements, learning from corrections
+        ├── tests/                    pytest: the learning rules and the Whisper prompt
+        ├── requirements.txt
+        └── requirements-gpu.txt      CUDA libraries for Whisper on an NVIDIA GPU
+android/                              the Android app (Kotlin, Jetpack Compose)
+└── app/src/main/java/io/github/kdiep12/reddot/
+    ├── bubble/BubbleService.kt       accessibility service: the dot over other apps, text into fields
+    ├── bubble/BubbleView.kt          the dot: drawing, hold / tap / drag
+    ├── bubble/TextInserter.kt        puts the transcript into the focused field
+    ├── audio/Recorder.kt             microphone -> 16 kHz WAV file
+    ├── notes/Note.kt                 the notes on the phone, one folder each
+    ├── net/ServerClient.kt           the /v1 HTTP API
+    ├── Dictation.kt                  record -> save -> transcribe
+    ├── TranscribeWorker.kt           transcribes waiting notes once there is a network
+    └── ui/                           setup, the big dot, the notes, settings, words
 docs/screenshot.png
 ```
 
@@ -120,7 +184,56 @@ Open **http://localhost:5173**. Use `localhost`, not `127.0.0.1`: the backend on
 5. **Drag the line and the dot** around the screen; they stay on screen.
 6. **Hold `R`** to record without moving the dot.
 
-There are no automated tests yet. `npm run build` type-checks the frontend (`tsc -b`) before building, and `npm run lint` runs the linter.
+`npm run build` type-checks the frontend (`tsc -b`) before building, and `npm run lint` runs the linter. The backend's learning rules have tests: `cd red-dot/src/components/RedDotCode/redDotServer && .venv/bin/python -m pytest tests`.
+
+### 5. The Android app
+
+**The server.** Install the transcription libraries, then start the backend with the API on:
+
+```bash
+cd red-dot/src/components/RedDotCode/redDotServer
+.venv/bin/pip install -r requirements.txt -r requirements-gpu.txt   # requirements-gpu.txt: NVIDIA GPUs only
+DICTATION_API=1 WHISPER_PRELOAD=1 .venv/bin/uvicorn server:app --host 0.0.0.0 --port 8090
+```
+
+The first start downloads Whisper `large-v3-turbo` (1.6 GB). Without an NVIDIA GPU it runs on the CPU; set `WHISPER_MODEL=small` there for speed.
+
+**The network.** Install [Tailscale](https://tailscale.com) on the computer and on the phone, signed in to the same account. The phone then reaches the server at the computer's Tailscale address (`tailscale ip -4`), wherever both are. Tailscale encrypts the connection, and only your own devices get in. Without Tailscale, on the same Wi-Fi, use the computer's LAN address and set `DICTATION_TOKEN`, because LAN addresses aren't in `DICTATION_NETWORKS`.
+
+**Build the app.** You need JDK 17 or newer and the Android SDK, either from Android Studio or the command-line tools with `platforms;android-35` and `build-tools;35.0.0`:
+
+```bash
+cd android
+echo "sdk.dir=$HOME/Android/Sdk" > local.properties
+echo "reddot.serverUrl=http://100.x.y.z:8090" >> local.properties   # optional: your server, pre-filled in the app
+./gradlew assembleRelease     # app/build/outputs/apk/release/app-release.apk
+```
+
+Without `keystore.properties` (see `app/build.gradle.kts`), release builds are signed with your debug key. Keep signing with the same key, because Android only installs an update over an app signed with the same key.
+
+**Install it.** No Play Store needed: copy the APK to the phone and open it (Android asks you to allow installing from that app), or run `adb install app-release.apk`.
+
+**Set it up on the phone.** Open RedDot and follow "Set up RedDot": the server check, the microphone, and the voice bubble (Settings, Accessibility, RedDot voice bubble). Android blocks accessibility settings for apps installed from a file. If the switch is greyed out, open App info, tap ⋮, choose **Allow restricted settings**, and try again.
+
+**Test it** (with a real phone and microphone):
+
+1. Open any app with a text field, such as Messages, Claude or a notes app, and tap into the field. When the keyboard opens, the red dot appears at the right edge.
+2. Hold the dot, say a sentence and let go. One buzz marks the start and two the stop. The dot shows a turning arc while the server transcribes, then a check mark, and the text is in the field.
+3. Tap the dot, speak, and tap again: the same, hands-free.
+4. Drag the dot to move it. It remembers the place.
+5. Turn on airplane mode, dictate, and turn it off again. The note waits in RedDot's list and is transcribed once the server is reachable.
+6. In RedDot, open a note, correct a misheard name and save. RedDot tells you which words it learned. Dictate the name again.
+
+**Without a phone,** the Android emulator works too, and `android/e2e/inject_audio.py` plays a recording into its microphone (it needs `pip install grpcio grpcio-tools` and ffmpeg):
+
+```bash
+emulator -avd <your AVD> -grpc 8554 &
+adb install app/build/outputs/apk/debug/app-debug.apk
+adb shell pm grant io.github.kdiep12.reddot android.permission.RECORD_AUDIO
+adb shell settings put secure enabled_accessibility_services io.github.kdiep12.reddot/io.github.kdiep12.reddot.bubble.BubbleService
+adb shell am start -a android.intent.action.VIEW -d 'reddot://setup?server=http%3A%2F%2F10.0.2.2%3A8090'   # 10.0.2.2: this computer, seen from the emulator
+python3 e2e/inject_audio.py note.wav 0.4 & adb shell input swipe X Y X Y 9000                                # X Y: where the dot is; holds it for 9 s
+```
 
 ## Configuration
 
@@ -132,6 +245,15 @@ There are no automated tests yet. `npm run build` type-checks the frontend (`tsc
 | `DEBUG_AUDIO_DIR` | `debug-audio` | where every utterance is saved as a WAV file; **empty: save nothing** (use that in production) |
 | `VAD_MIN_RMS` | `200` | how loud a chunk must be to count as speech (16-bit scale; speech is typically 1000–5000) |
 | `VAD_MODE` | `3` | WebRTC VAD strictness, 0 (lenient) to 3 (strictest) |
+| `DICTATION_API` | `0` | `1`: switch on the `/v1` HTTP API, the transcription for the Android app |
+| `DICTATION_NETWORKS` | `127.0.0.0/8,::1/128,100.64.0.0/10,fd7a:115c:a1e0::/48` | client addresses that may use `/v1` without a token: this machine and Tailscale's ranges. **Behind a reverse proxy** every client looks like `127.0.0.1`: set it to empty and use a token |
+| `DICTATION_TOKEN` | empty | a secret that lets any client use `/v1`, sent as `Authorization: Bearer <token>` |
+| `DICTATION_DATA_DIR` | `dictation-data` | vocabulary, replacements, corrections, and kept notes |
+| `DICTATION_KEEP_AUDIO` | `0` | `1`: keep every note's audio and text in `DICTATION_DATA_DIR/notes/`, to tune Whisper to your voice later. **Personal voice recordings** |
+| `WHISPER_MODEL` | `large-v3-turbo` | any faster-whisper model, e.g. `small`, `medium`, `large-v3` |
+| `WHISPER_DEVICE` | `auto` | `cuda`, `cpu`, or `auto`: the GPU if there is one, otherwise the CPU |
+| `WHISPER_COMPUTE_TYPE` | `default` | `float16` on a GPU and `int8` on a CPU, unless set |
+| `WHISPER_PRELOAD` | `0` | `1`: load Whisper at startup, so the first note isn't slow |
 
 **Frontend** (build time): `VITE_BACKEND_URL` in `red-dot/.env.production`, the backend's public address, e.g. `https://api.example.com`. Leave it unset for development: the page then uses its own address and Vite's proxy forwards `/ws` and `/healthz` to `localhost:8090`.
 
@@ -177,6 +299,19 @@ The frontend is a static site; the backend is a small Python service behind a re
 
 4. Check: `curl https://api.example.com/healthz` answers `{"ok":true}`.
 
+### A personal transcription server for the Android app
+
+Run the backend on the computer with the GPU, reachable through Tailscale, as a systemd user service:
+
+```bash
+cd red-dot/src/components/RedDotCode/redDotServer
+sh install_service                          # or: DICTATION_KEEP_AUDIO=1 sh install_service
+```
+
+`install_service` writes `~/.config/systemd/user/reddot.service` (the transcription API on port 8090, data in `~/.local/share/reddot`) and starts it. With `DICTATION_KEEP_AUDIO=1` the server also keeps every note's audio, for tuning Whisper to your voice later. Follow the log with `journalctl --user -u reddot -f`. User services stop when you log out, unless you run `loginctl enable-linger $USER` once. To remove it: `systemctl --user disable --now reddot && rm ~/.config/systemd/user/reddot.service`.
+
+The service runs the code in this directory, so it follows the branch you have checked out: switch to a branch without the transcription API and the service fails to start.
+
 ### Frontend
 
 1. Set the backend's address and build:
@@ -210,9 +345,18 @@ The frontend is a static site; the backend is a small Python service behind a re
 | The connection drops every 60 s | the reverse proxy's read timeout is too short |
 | "Could not start the microphone" | the page isn't served over HTTPS (or `localhost`), or microphone access was denied |
 | No line after an utterance | the backend is an older version that doesn't send `utterance` messages |
+| The app says "Can't reach the server" | Tailscale is off on the phone or the computer; the backend isn't running (`curl http://<address>:8090/healthz`); a firewall blocks port 8090 |
+| HTTP 401, "Not allowed: connect through Tailscale" | the phone reaches the server by a LAN or public address: use the Tailscale address, or set `DICTATION_TOKEN` and enter it in the app |
+| The bubble doesn't appear | the accessibility service is off (Android turns it off after the app crashes or is updated); the keyboard is closed while "Only while the keyboard is open" is on; it is a password field |
+| "The microphone gave RedDot only silence" | Android blocked the microphone: open RedDot and check the microphone permission |
+| The text lands on the clipboard instead of in the field | the field doesn't accept text from accessibility services, or you switched apps while it was transcribing: paste it |
+| Whisper fails with `libcublas.so.12 is not found` | `requirements-gpu.txt` isn't installed in `.venv` |
 
 ## Roadmap
 
+- **Done, the first processor:** Whisper transcription behind an OpenAI-compatible endpoint, used by the Android app. `transcriber.py` is where the "processors" interface below can grow from.
+- **Transcription on the phone** for places without signal: a small Whisper model on the device, with the server as the better fallback.
+- **Whisper tuned to your voice,** trained on the kept notes and their corrections (`DICTATION_KEEP_AUDIO=1`).
 - **Agents behind one interface.** Every finished utterance is a self-contained recording. The next step is a small interface for "processors" that take a recording and return a result (a transcript, a reply, an action), so that different speech-to-text engines (e.g. Google Cloud Speech-to-Text, Gemini, Whisper) and agents built on them can be plugged in and swapped without touching the UI.
 - **Side-by-side comparison.** Send the same utterance to several processors at once and show their results, timings and confidence next to its line.
 - **Speech detection in the browser.** Running voice activity detection locally (e.g. Silero VAD in WebAssembly) would make the dot react instantly and keep audio on the device, with the backend only needed for the agents.
@@ -220,4 +364,8 @@ The frontend is a static site; the backend is a small Python service behind a re
 
 ## Privacy
 
-Recordings stay in the browser's memory and are gone when the page is closed. The backend receives the audio only to judge it chunk by chunk; it doesn't store it unless `DEBUG_AUDIO_DIR` is set, which is the default for local development only. Set `DEBUG_AUDIO_DIR=` (empty) on any server other people use.
+**The web page:** recordings stay in the browser's memory and are gone when the page is closed. The backend receives the audio only to judge it chunk by chunk; it doesn't store it unless `DEBUG_AUDIO_DIR` is set, which is the default for local development only. Set `DEBUG_AUDIO_DIR=` (empty) on any server other people use.
+
+**The Android app:** notes, both audio and text, stay on the phone until you delete them. Each note's audio goes to the RedDot server you set up, and nowhere else. The accessibility permission lets the app see which text field is focused and write into it. It doesn't read or send anything else on the screen.
+
+**The transcription server** (`DICTATION_API=1`) receives whole notes, transcribes them in memory and returns the text. It keeps your vocabulary, your replacements and every correction you send, which is text, in `DICTATION_DATA_DIR`. It keeps audio only with `DICTATION_KEEP_AUDIO=1`. `DICTATION_DATA_DIR/notes/` then holds personal voice recordings: never commit, upload or share them. The log records lengths and timings, not what was said.
