@@ -1,3 +1,8 @@
 fastapi>=0.115
 uvicorn[standard]>=0.30
 webrtcvad-wheels>=2.0.14
+# The transcription API (DICTATION_API=1). python-multipart: FastAPI needs it for file uploads.
+python-multipart>=0.0.9
+faster-whisper>=1.1
+# faster-whisper 1.2.1 passes an option (metadata_errors) that PyAV 19 removed: stay below 19 until it is fixed
+av>=11,<19

@@ -20,6 +20,8 @@ dist-ssr/
 # ---- Voice recordings from the speech detector: personal data, not code ----
 debug-audio/
 *.wav
+# The transcription API's data: your vocabulary, corrections and (optionally) voice notes
+dictation-data/
 
 # ---- Secrets and local settings, in case they ever appear ----
 .env
@@ -28,6 +30,18 @@ debug-audio/
 *.pem
 id_rsa*
 id_ed25519*
+
+# ---- Android: build output, local settings, signing keys and built apps ----
+android/.gradle/
+android/.kotlin/
+android/build/
+android/app/build/
+android/local.properties
+android/keystore.properties
+*.jks
+*.keystore
+*.apk
+*.aab
 
 # ---- Editors and operating systems ----
 .vscode/*

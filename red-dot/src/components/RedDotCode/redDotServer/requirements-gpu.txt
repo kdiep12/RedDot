@@ -1,0 +1,4 @@
+# Whisper on an NVIDIA GPU: the CUDA libraries CTranslate2 needs, from pip, so no system-wide CUDA
+# install is required (transcriber.py loads them from .venv). RTX 50-series cards need cuBLAS 12.8+.
+nvidia-cublas-cu12>=12.8
+nvidia-cudnn-cu12==9.*

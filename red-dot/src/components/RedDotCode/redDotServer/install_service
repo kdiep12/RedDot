@@ -1,0 +1,29 @@
+# Runs this backend as a systemd user service with the transcription API on (port 8090), for
+# the Android app. See README, "A personal transcription server". Run: sh install_service
+#   DICTATION_KEEP_AUDIO=1 sh install_service   also keeps every note's audio, to tune Whisper to your voice later
+#   undo: systemctl --user disable --now reddot && rm ~/.config/systemd/user/reddot.service
+set -e
+dir=$(cd "$(dirname "$0")" && pwd)
+mkdir -p ~/.config/systemd/user
+cat > ~/.config/systemd/user/reddot.service <<EOF
+[Unit]
+Description=RedDot transcription server
+After=network-online.target
+
+[Service]
+WorkingDirectory=$dir
+Environment=DICTATION_API=1
+Environment=WHISPER_PRELOAD=1
+Environment=DICTATION_KEEP_AUDIO=${DICTATION_KEEP_AUDIO:-0}
+Environment=DICTATION_DATA_DIR=%h/.local/share/reddot
+Environment=DEBUG_AUDIO_DIR=
+ExecStart=$dir/.venv/bin/uvicorn server:app --host 0.0.0.0 --port 8090
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+EOF
+systemctl --user daemon-reload
+systemctl --user enable --now reddot
+echo "RedDot server started: http://$(tailscale ip -4 2>/dev/null | head -n1):8090  (log: journalctl --user -u reddot -f)"

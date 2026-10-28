@@ -1,16 +1,22 @@
-"""The backend for the React orb (../orb-react): nothing else.
+"""The RedDot backend: speech detection for the web page, transcription for the Android app.
 
-The browser streams the microphone while the dot (or R) is held; for every 100 ms chunk
+The web page streams the microphone while the dot (or R) is held; for every 100 ms chunk
 the server answers whether it is speech. For debugging, it also cuts the stream into
-utterances (utterances.py) and saves each as a WAV file in DEBUG_AUDIO_DIR. Everything
-runs locally: no speech-to-text, no Google Cloud.
+utterances (utterances.py) and saves each as a WAV file in DEBUG_AUDIO_DIR. That part runs
+without any speech-to-text.
+
+With DICTATION_API=1 the server also transcribes whole notes with Whisper and learns your
+vocabulary (dictation_api.py, transcriber.py, learning.py): that is what the Android app
+uses.
 
 Run:   .venv/bin/uvicorn server:app --port 8090
-       (the port the React dev server forwards to: see ../orb-react/vite.config.ts)
+       (the port the React dev server forwards to: see ../../../../vite.config.ts)
 
 HTTP:
-    GET /healthz                  the page polls this while the server is down
-    GET /static/pcm-recorder.js   the AudioWorklet that turns the mic into 100 ms PCM chunks
+    GET /healthz                  the page polls this while the server is down; with
+                                  DICTATION_API=1 it also says whether Whisper is loaded
+    /v1/...                       with DICTATION_API=1: transcription, vocabulary and
+                                  corrections, see dictation_api.py
 WebSocket /ws:
     page -> server  text   {"type": "mic", "on": true|false}   dot/R pressed or released
                     binary 100 ms of 16 kHz 16-bit mono PCM   only while pressed
@@ -28,11 +34,14 @@ import logging
 import os
 import time
 import wave
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
+import dictation_api
 from speech_check import MIN_RMS, SAMPLE_RATE, ChunkCheck, SpeechCheck
 from utterances import UtteranceEvent, UtteranceRecorder
 
@@ -44,13 +53,28 @@ DEBUG_AUDIO_DIR = os.getenv("DEBUG_AUDIO_DIR", "debug-audio")
 
 ALLOWED_ORIGINS = [o.strip().rstrip("/") for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
 
-app = FastAPI(title="Orb backend")
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    if dictation_api.DICTATION_API:
+        log.info("dictation API on: /v1 (Whisper %s, data in %s, keeping audio: %s)", dictation_api.WHISPER_MODEL,
+                 Path(dictation_api.DICTATION_DATA_DIR).resolve(), "yes" if dictation_api.DICTATION_KEEP_AUDIO else "no")
+        dictation_api.start_preload()
+    yield
+
+
+app = FastAPI(title="Orb backend", lifespan=lifespan)
 # CORS: lets pages from ALLOWED_ORIGINS read /healthz although they come from another domain.
 app.add_middleware(CORSMiddleware, allow_origins=ALLOWED_ORIGINS, allow_methods=["GET"])
+if dictation_api.DICTATION_API:
+    app.include_router(dictation_api.router)
 
 
 @app.get("/healthz")
 async def healthz() -> dict:
+    if dictation_api.DICTATION_API:
+        return {"ok": True, "transcription": dictation_api.health()}
     return {"ok": True}
 
 
