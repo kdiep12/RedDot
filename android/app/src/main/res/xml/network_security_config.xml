@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The server is usually reached as http://<Tailscale address>:8090. Tailscale encrypts that
+     traffic itself (WireGuard) but Android can't tell, so plain http is allowed. -->
+<network-security-config xmlns:tools="http://schemas.android.com/tools">
+    <base-config cleartextTrafficPermitted="true" tools:ignore="InsecureBaseConfiguration" />
+</network-security-config>

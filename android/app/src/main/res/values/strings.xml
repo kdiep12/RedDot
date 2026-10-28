@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">RedDot</string>
+    <string name="bubble_service_label">RedDot voice bubble</string>
+    <string name="bubble_service_description">Shows the red dot when you type in another app. Hold the dot and speak: RedDot sends the recording to your own RedDot server and types the text into the field.\n\nRedDot uses this permission to see which text field is focused and to write into it. It doesn\'t read or send anything else on your screen.</string>
+</resources>

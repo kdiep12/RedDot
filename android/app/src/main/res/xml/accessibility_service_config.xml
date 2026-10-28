@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What the bubble listens to: focus moving to a field, taps, windows and the keyboard
+     appearing or going away. Not text changes or screen content changes: it doesn't need them. -->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:accessibilityEventTypes="typeViewFocused|typeViewClicked|typeWindowStateChanged|typeWindowsChanged|typeViewTextSelectionChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagRetrieveInteractiveWindows"
+    android:canRetrieveWindowContent="true"
+    android:description="@string/bubble_service_description"
+    android:isAccessibilityTool="false"
+    tools:targetApi="31"
+    android:notificationTimeout="100" />

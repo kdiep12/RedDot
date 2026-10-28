@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The web app's "idle" red, looks.ts: [0.86, 0.13, 0.13] -->
+    <color name="reddot_red">#FFDB2121</color>
+    <color name="icon_background">#FF141416</color>
+</resources>
