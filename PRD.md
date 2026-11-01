@@ -93,7 +93,7 @@ The workflow it replaces: Wispr Flow on an Android phone. Tap into any text fiel
 
 | ID | Requirement | Pri | Status (v0.1, branch `android-dictation`) |
 |---|---|---|---|
-| R50 | **Bubble in any app.** A native Android app (sideloaded, no Play Store) shows the red dot while a text field has focus and the keyboard is open. An accessibility service draws it, because only those may see the focused field in another app and write into it. | P0 | Done, tested with Google Messages and Gboard on Android 15 |
+| R50 | **Bubble in any app.** A native Android app (sideloaded, or from a private Google Play test where an employer's phone management blocks installs from outside the Play Store) shows the red dot while a text field has focus and the keyboard is open. An accessibility service draws it, because only those may see the focused field in another app and write into it. Before Android's setting opens, the app explains what the service sees and asks (Google Play's disclosure rule). | P0 | Done, tested with Google Messages and Gboard on Android 15 and 16 (emulator); not yet on a phone |
 | R51 | **Push-to-talk and hands-free.** Hold the dot to talk and let go to stop, or tap to start and tap again to stop. One buzz at the start and two at the stop. Auto-stop after 5 minutes. | P0 | Done |
 | R52 | **Text into the field.** The transcript goes in at the cursor, with spaces added where needed. If the field changed meanwhile, it goes to the clipboard. | P0 | Done (ACTION_SET_TEXT, paste as fallback) |
 | R53 | **Transcription server.** `POST /v1/audio/transcriptions`, OpenAI-compatible, faster-whisper `large-v3-turbo` on the home PC's GPU, reached through Tailscale. Supersedes R6's `POST /transcribe`. | P0 | Done: about 0.2 s for a 7 s note on an RTX 5070 Ti |

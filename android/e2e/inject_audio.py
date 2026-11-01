@@ -6,7 +6,9 @@ Needs the emulator started with `-grpc 8554`, ffmpeg, and `pip install grpcio gr
     python3 inject_audio.py note.wav [seconds of silence before] [seconds of silence after]
 
 The emulator only takes audio while an app is recording, and this blocks until it has taken
-all of it: start it, then hold the dot (`adb shell input swipe X Y X Y 9000` holds for 9 s).
+all of it. Start the recording first, then this: hold the dot (`adb shell input swipe X Y X Y
+9000 &` holds it for 9 s) and run this a second later. The Android 16 emulator (version 37.2)
+crashes when audio arrives while no app is recording; the Android 15 one waited.
 It uses the emulator's own gRPC API (EmulatorController.injectAudio), compiled on the fly
 from the .proto file that ships with the emulator.
 """

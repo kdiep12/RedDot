@@ -200,20 +200,23 @@ The first start downloads Whisper `large-v3-turbo` (1.6 GB). Without an NVIDIA G
 
 **The network.** Install [Tailscale](https://tailscale.com) on the computer and on the phone, signed in to the same account. The phone then reaches the server at the computer's Tailscale address (`tailscale ip -4`), wherever both are. Tailscale encrypts the connection, and only your own devices get in. Without Tailscale, on the same Wi-Fi, use the computer's LAN address and set `DICTATION_TOKEN`, because LAN addresses aren't in `DICTATION_NETWORKS`.
 
-**Build the app.** You need JDK 17 or newer and the Android SDK, either from Android Studio or the command-line tools with `platforms;android-35` and `build-tools;35.0.0`:
+**Build the app.** You need JDK 17 or newer and the Android SDK, either from Android Studio or the command-line tools with `platforms;android-36` and `build-tools;35.0.0`. The app targets Android 16 (API 36), which Google Play requires:
 
 ```bash
 cd android
 echo "sdk.dir=$HOME/Android/Sdk" > local.properties
 echo "reddot.serverUrl=http://100.x.y.z:8090" >> local.properties   # optional: your server, pre-filled in the app
 ./gradlew assembleRelease     # app/build/outputs/apk/release/app-release.apk
+./gradlew bundleRelease       # app/build/outputs/bundle/release/app-release.aab, for Google Play
 ```
 
 Without `keystore.properties` (see `app/build.gradle.kts`), release builds are signed with your debug key. Keep signing with the same key, because Android only installs an update over an app signed with the same key.
 
 **Install it.** No Play Store needed: copy the APK to the phone and open it (Android asks you to allow installing from that app), or run `adb install app-release.apk`.
 
-**Set it up on the phone.** Open RedDot and follow "Set up RedDot": the server check, the microphone, and the voice bubble (Settings, Accessibility, RedDot voice bubble). Android blocks accessibility settings for apps installed from a file. If the switch is greyed out, open App info, tap ⋮, choose **Allow restricted settings**, and try again.
+A phone managed by an employer often blocks apps from outside the Play Store, even on its personal side ("blocked by your IT admin"). There, RedDot has to come from Google Play: upload the `.aab` as a private internal test, which needs a Google Play developer account (US$25 once) and is visible only to the testers you invite. Google asks apps with an accessibility service for a declaration and a short video of the in-app explanation below.
+
+**Set it up on the phone.** Open RedDot and follow "Set up RedDot": the server check, the microphone, and the voice bubble. Its Accessibility button first explains what the bubble sees and does; Agree opens Android's Accessibility settings, where you turn on RedDot voice bubble. Android blocks accessibility settings for apps installed from a file. If the switch is greyed out, open App info, tap ⋮, choose **Allow restricted settings**, and try again.
 
 **Test it** (with a real phone and microphone):
 
@@ -224,7 +227,7 @@ Without `keystore.properties` (see `app/build.gradle.kts`), release builds are s
 5. Turn on airplane mode, dictate, and turn it off again. The note waits in RedDot's list and is transcribed once the server is reachable.
 6. In RedDot, open a note, correct a misheard name and save. RedDot tells you which words it learned. Dictate the name again.
 
-**Without a phone,** the Android emulator works too, and `android/e2e/inject_audio.py` plays a recording into its microphone (it needs `pip install grpcio grpcio-tools` and ffmpeg):
+**Without a phone,** the Android emulator works too (tested with Android 15 and 16 images), and `android/e2e/inject_audio.py` plays a recording into its microphone (it needs `pip install grpcio grpcio-tools` and ffmpeg). Start recording before you play: the Android 16 emulator (version 37.2) crashes when audio arrives while no app is recording.
 
 ```bash
 emulator -avd <your AVD> -grpc 8554 &
@@ -232,7 +235,7 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 adb shell pm grant io.github.kdiep12.reddot android.permission.RECORD_AUDIO
 adb shell settings put secure enabled_accessibility_services io.github.kdiep12.reddot/io.github.kdiep12.reddot.bubble.BubbleService
 adb shell am start -a android.intent.action.VIEW -d 'reddot://setup?server=http%3A%2F%2F10.0.2.2%3A8090'   # 10.0.2.2: this computer, seen from the emulator
-python3 e2e/inject_audio.py note.wav 0.4 & adb shell input swipe X Y X Y 9000                                # X Y: where the dot is; holds it for 9 s
+adb shell input swipe X Y X Y 9000 & sleep 1; python3 e2e/inject_audio.py note.wav 0.4                     # X Y: where the dot is; holds it for 9 s, then plays
 ```
 
 ## Configuration
@@ -347,6 +350,7 @@ The service runs the code in this directory, so it follows the branch you have c
 | No line after an utterance | the backend is an older version that doesn't send `utterance` messages |
 | The app says "Can't reach the server" | Tailscale is off on the phone or the computer; the backend isn't running (`curl http://<address>:8090/healthz`); a firewall blocks port 8090 |
 | HTTP 401, "Not allowed: connect through Tailscale" | the phone reaches the server by a LAN or public address: use the Tailscale address, or set `DICTATION_TOKEN` and enter it in the app |
+| Installing the APK is "blocked by your IT admin" | the phone is managed by an employer, which can block installs from outside the Play Store on the personal side too: install RedDot from a private Google Play test instead (see "5. The Android app") |
 | The bubble doesn't appear | the accessibility service is off (Android turns it off after the app crashes or is updated); the keyboard is closed while "Only while the keyboard is open" is on; it is a password field |
 | "The microphone gave RedDot only silence" | Android blocked the microphone: open RedDot and check the microphone permission |
 | The text lands on the clipboard instead of in the field | the field doesn't accept text from accessibility services, or you switched apps while it was transcribing: paste it |
@@ -366,6 +370,6 @@ The service runs the code in this directory, so it follows the branch you have c
 
 **The web page:** recordings stay in the browser's memory and are gone when the page is closed. The backend receives the audio only to judge it chunk by chunk; it doesn't store it unless `DEBUG_AUDIO_DIR` is set, which is the default for local development only. Set `DEBUG_AUDIO_DIR=` (empty) on any server other people use.
 
-**The Android app:** notes, both audio and text, stay on the phone until you delete them. Each note's audio goes to the RedDot server you set up, and nowhere else. The accessibility permission lets the app see which text field is focused and write into it. It doesn't read or send anything else on the screen.
+**The Android app:** notes, both audio and text, stay on the phone until you delete them. Each note's audio goes to the RedDot server you set up, and nowhere else. The accessibility permission tells the app when you move into a text field in any app, and lets it see that field and its text, the name of its app and whether the keyboard is showing, and write into the field. It doesn't read or send anything else on the screen, and it stays out of password fields. The app explains this and asks before it opens Android's setting.
 
 **The transcription server** (`DICTATION_API=1`) receives whole notes, transcribes them in memory and returns the text. It keeps your vocabulary, your replacements and every correction you send, which is text, in `DICTATION_DATA_DIR`. It keeps audio only with `DICTATION_KEEP_AUDIO=1`. `DICTATION_DATA_DIR/notes/` then holds personal voice recordings: never commit, upload or share them. The log records lengths and timings, not what was said.
