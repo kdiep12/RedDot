@@ -73,10 +73,10 @@ flowchart LR
   notes -. "your corrections" .-> learn
 ```
 
-1. **Tap into a text field in any app.** When the keyboard opens, the red dot appears at the edge of the screen. An accessibility service draws it, as Wispr Flow's Android bubble does, because only accessibility services may see which field is focused in another app and write into it.
+1. **Tap into a text field in any app.** When the keyboard opens, the red dot appears at the edge of the screen. An accessibility service draws it, as Wispr Flow's Android bubble does, because only accessibility services may see which field is focused in another app and write into it. Android's own answer to "which field has the focus?" isn't always enough: Jetpack Compose and web views can answer with their whole screen (RedDot 0.2.0 showed no dot in the Claude app), so `FieldFinder` also looks inside that view for the focused, editable element, reading only flags and class names. If the keyboard is open but no field can be seen at all, the dot still shows, and the words go to the clipboard to paste.
 2. **Hold the dot and speak, then let go** (or tap, speak, tap again). The phone records 16 kHz mono WAV straight into a file and saves the note before any network call.
 3. **The server transcribes it.** The note goes to the OpenAI-compatible `POST /v1/audio/transcriptions`. Whisper gets your vocabulary as hints, and replacements learned from your corrections are applied to its text.
-4. **The text goes into the field** at the cursor. If you switched apps meanwhile, it goes to the clipboard instead.
+4. **The text goes into the field** at the cursor: written into app fields, pasted into web pages (whose editors keep their own copy of the text). RedDot checks 0.4 s later that the field really changed and otherwise pastes, or leaves the text on the clipboard. If you switched apps meanwhile, it goes to the clipboard too.
 5. **No server, no problem:** an unreachable server leaves the note waiting on the phone. It is transcribed automatically once there is a connection, and appears in RedDot's notes list.
 6. **Correct a note in the app** and the server compares your version with Whisper's: misheard names become vocabulary, and a fix you make twice becomes an automatic replacement (`learning.py` explains the rules).
 
@@ -131,7 +131,8 @@ android/                              the Android app (Kotlin, Jetpack Compose)
 └── app/src/main/java/io/github/kdiep12/reddot/
     ├── bubble/BubbleService.kt       accessibility service: the dot over other apps, text into fields
     ├── bubble/BubbleView.kt          the dot: drawing, hold / tap / drag
-    ├── bubble/TextInserter.kt        puts the transcript into the focused field
+    ├── bubble/FieldFinder.kt         finds the field you type in: classic views, Compose, web pages
+    ├── bubble/TextInserter.kt        puts the transcript into that field, and checks it arrived
     ├── audio/Recorder.kt             microphone -> 16 kHz WAV file
     ├── notes/Note.kt                 the notes on the phone, one folder each
     ├── net/ServerClient.kt           the /v1 HTTP API
@@ -352,8 +353,9 @@ The service runs the code in this directory, so it follows the branch you have c
 | HTTP 401, "Not allowed: connect through Tailscale" | the phone reaches the server by a LAN or public address: use the Tailscale address, or set `DICTATION_TOKEN` and enter it in the app |
 | Installing the APK is "blocked by your IT admin" | the phone is managed by an employer, which can block installs from outside the Play Store on the personal side too: install RedDot from a private Google Play test instead (see "5. The Android app") |
 | The bubble doesn't appear | the accessibility service is off (Android turns it off after the app crashes or is updated); the keyboard is closed while "Only while the keyboard is open" is on; it is a password field |
+| The dot shows in other apps but not in one | tap into that app's text field, open RedDot's Settings and look at **Last text field** under Bubble: the app, the field's class, what Android reported as focused and how RedDot found the field (no text). "keyboard only" means RedDot can't see the field and puts your words on the clipboard. A screenshot of that line is what's needed to fix it |
 | "The microphone gave RedDot only silence" | Android blocked the microphone: open RedDot and check the microphone permission |
-| The text lands on the clipboard instead of in the field | the field doesn't accept text from accessibility services, or you switched apps while it was transcribing: paste it |
+| The text lands on the clipboard instead of in the field | the field doesn't accept text from accessibility services, RedDot can only see the keyboard there ("keyboard only" in Settings), or you switched apps while it was transcribing: paste it |
 | Whisper fails with `libcublas.so.12 is not found` | `requirements-gpu.txt` isn't installed in `.venv` |
 
 ## Roadmap
@@ -370,6 +372,6 @@ The service runs the code in this directory, so it follows the branch you have c
 
 **The web page:** recordings stay in the browser's memory and are gone when the page is closed. The backend receives the audio only to judge it chunk by chunk; it doesn't store it unless `DEBUG_AUDIO_DIR` is set, which is the default for local development only. Set `DEBUG_AUDIO_DIR=` (empty) on any server other people use.
 
-**The Android app:** notes, both audio and text, stay on the phone until you delete them. Each note's audio goes to the RedDot server you set up, and nowhere else. The accessibility permission tells the app when you move into a text field in any app, and lets it see that field and its text, the name of its app and whether the keyboard is showing, and write into the field. It doesn't read or send anything else on the screen, and it stays out of password fields. The app explains this and asks before it opens Android's setting.
+**The Android app:** notes, both audio and text, stay on the phone until you delete them. Each note's audio goes to the RedDot server you set up, and nowhere else. The accessibility permission tells the app when you move into a text field in any app, and lets it see that field and its text, the name of its app and whether the keyboard is showing, and write into the field. To find the field it may look at which element of the app's screen has the keyboard's focus, reading only each element's flags and class name. It doesn't read anything else written on the screen or send anything from it, and it stays out of password fields. Settings' "Last text field" line shows what it found, without any text. The app explains this and asks before it opens Android's setting.
 
 **The transcription server** (`DICTATION_API=1`) receives whole notes, transcribes them in memory and returns the text. It keeps your vocabulary, your replacements and every correction you send, which is text, in `DICTATION_DATA_DIR`. It keeps audio only with `DICTATION_KEEP_AUDIO=1`. `DICTATION_DATA_DIR/notes/` then holds personal voice recordings: never commit, upload or share them. The log records lengths and timings, not what was said.
