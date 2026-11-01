@@ -40,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.kdiep12.reddot.BuildConfig
 import io.github.kdiep12.reddot.RedDotApp
 import io.github.kdiep12.reddot.TranscribeWorker
@@ -67,6 +68,7 @@ fun SettingsScreen(app: RedDotApp, onBack: () -> Unit) {
     var bubbleEnabled by remember { mutableStateOf(settings.bubbleEnabled) }
     var onlyWithKeyboard by remember { mutableStateOf(settings.bubbleOnlyWithKeyboard) }
     var haptics by remember { mutableStateOf(settings.haptics) }
+    val lastField by app.lastField.collectAsStateWithLifecycle()
 
     Scaffold(topBar = { TopAppBar(title = { Text("Settings") }, navigationIcon = { BackButton(onBack) }) }) { padding ->
         Column(
@@ -122,6 +124,10 @@ fun SettingsScreen(app: RedDotApp, onBack: () -> Unit) {
             SwitchRow("Only while the keyboard is open", onlyWithKeyboard) { onlyWithKeyboard = it; settings.bubbleOnlyWithKeyboard = it }
             SwitchRow("Vibrate when recording starts and stops", haptics) { haptics = it; settings.haptics = it }
             Text("Hold the dot and speak, then let go. Or tap it, speak, and tap again. Drag it to move it.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            // For when the dot doesn't appear in some app: what the bubble saw there, without any text.
+            // Tap into that app's text field, come back here, and screenshot this line.
+            Text("Last text field: " + (lastField?.describe() ?: "none yet. Tap into a text field in another app."),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
             HorizontalDivider()

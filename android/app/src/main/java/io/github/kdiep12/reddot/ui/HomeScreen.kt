@@ -444,11 +444,13 @@ private fun BubbleDisclosure(onAgree: () -> Unit, onNotNow: () -> Unit) {
                      "in other apps, and type for you. While it's on, RedDot is told when you move into a text field " +
                      "in any app, and sees:")
                 Text("• that text field, and the text already in it, so your words go in at the cursor with the right spaces")
+                Text("• which part of the app's screen has the keyboard's focus, to find that field. For this it looks " +
+                     "only at the screen's layout, never at what's written there")
                 Text("• the name of the app the field is in, to label the note on this phone (\"in Claude\")")
                 Text("• whether the keyboard is showing, to put the dot just above it")
                 Text("RedDot uses this only to show the dot and to type what you dictate into that field. It doesn't " +
-                     "read or send anything else on your screen, and it stays out of password fields. Your recordings " +
-                     "go only to your own RedDot server, the one in Settings.")
+                     "read anything else written on your screen or send anything from it, and it stays out of password " +
+                     "fields. Your recordings go only to your own RedDot server, the one in Settings.")
                 Text("After Agree, Android's Accessibility settings open: choose RedDot voice bubble and turn it on.")
             }
         },

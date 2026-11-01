@@ -14,7 +14,6 @@ import android.util.DisplayMetrics
 import android.view.Gravity
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
-import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.Toast
 import io.github.kdiep12.reddot.Dictation
@@ -25,9 +24,9 @@ import kotlin.math.roundToInt
 /**
  * The voice bubble in other apps, the way Wispr Flow does it on Android:
  *
- *   you tap a text field --> the keyboard opens --> the red dot appears beside it
+ *   you tap a text field --> the keyboard opens --> the red dot appears beside it (FieldFinder)
  *   hold the dot and speak --> RedDot records (Dictation) --> the server transcribes
- *   --> the text goes into that field at the cursor (TextInserter)
+ *   --> the text goes into that field at the cursor (TextInserter), checked a moment later
  *
  * An accessibility service, because only those may see which field is focused in another app
  * and write into it. It draws the dot as an accessibility overlay, which needs no separate
@@ -36,6 +35,7 @@ import kotlin.math.roundToInt
 class BubbleService : AccessibilityService(), BubbleView.Listener {
     private lateinit var app: RedDotApp
     private lateinit var windowManager: WindowManager
+    private lateinit var finder: FieldFinder
     private val main = Handler(Looper.getMainLooper())
     private var bubble: BubbleView? = null
     private var layout: WindowManager.LayoutParams? = null
@@ -53,10 +53,12 @@ class BubbleService : AccessibilityService(), BubbleView.Listener {
         super.onServiceConnected()
         app = RedDotApp.of(this)
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        finder = FieldFinder(this)
         refresh()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
+        if (::finder.isInitialized) finder.onEvent(event)
         // One tap on a field sends a burst of events (click, focus, windows): look once they settle.
         main.removeCallbacks(refreshLater)
         main.postDelayed(refreshLater, SETTLE_MS)
@@ -83,16 +85,23 @@ class BubbleService : AccessibilityService(), BubbleView.Listener {
 
     // ---------------- when to show the dot ----------------
 
-    private fun focusedField(): AccessibilityNodeInfo? {
-        val node = findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return null
-        return node.takeIf { it.isEditable && !it.isPassword && it.packageName?.toString() != packageName }
+    private fun keyboard(): AccessibilityWindowInfo? =
+        windows.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
+
+    /** The field you're typing in, and what was found for Settings' diagnostics line. */
+    private fun field(keyboard: AccessibilityWindowInfo?): FieldFinder.Field? {
+        val field = finder.find(keyboard)
+        // Kept in the app, not the service: Android reconnects the service now and then (after
+        // an update, or while a test tool inspects the screen), and the line should survive that.
+        finder.report?.let { app.lastField.value = it }
+        return field
     }
 
     private fun refresh() {
         if (!::app.isInitialized) return
-        val keyboard = windows.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
+        val keyboard = keyboard()
         keyboardTop = keyboard?.let { Rect().also(it::getBoundsInScreen).top }
-        val wanted = busy || (app.settings.bubbleEnabled && focusedField() != null &&
+        val wanted = busy || (app.settings.bubbleEnabled && field(keyboard) != null &&
             (keyboard != null || !app.settings.bubbleOnlyWithKeyboard))
         if (wanted) showBubble() else removeBubble()
     }
@@ -153,7 +162,7 @@ class BubbleService : AccessibilityService(), BubbleView.Listener {
     // ---------------- BubbleView.Listener: recording ----------------
 
     override fun onPressStart(): Boolean {
-        val target = focusedField()?.packageName?.toString()
+        val target = field(keyboard())?.app
         return when (app.dictation.start(SOURCE, target) { level -> bubble?.setLevel(level) }) {
             Dictation.StartResult.OK -> {
                 targetApp = target
@@ -198,11 +207,7 @@ class BubbleService : AccessibilityService(), BubbleView.Listener {
                 toast("RedDot didn't hear any words")
             }
             is Dictation.Outcome.Text -> {
-                if (TextInserter.insert(this, outcome.note.text.orEmpty(), targetApp)) {
-                    app.notes.update(outcome.note.id) { it.copy(inserted = true) }
-                } else {
-                    toast("Copied. Paste it where you need it.")
-                }
+                put(outcome.note.id, outcome.note.text.orEmpty())
                 view?.state = BubbleView.State.DONE
             }
             is Dictation.Outcome.Failed -> {
@@ -214,6 +219,37 @@ class BubbleService : AccessibilityService(), BubbleView.Listener {
         // Hide the dot if the field is gone, once the check mark or the grey flash is over.
         main.removeCallbacks(refreshLater)
         main.postDelayed(refreshLater, BubbleView.FLASH_MS + 100)
+    }
+
+    // ---------------- putting the words in ----------------
+
+    /** Into the field you're typing in, if it is still in the app you started recording in;
+     *  otherwise (or in keyboard-only mode) onto the clipboard. */
+    private fun put(noteId: String, text: String) {
+        val field = field(keyboard())
+        val node = field?.node
+        if (field == null || field.app != targetApp || node == null) {
+            TextInserter.copy(this, text.trim())
+            val keyboardOnly = field?.how == FieldFinder.How.KEYBOARD_ONLY && field.app == targetApp
+            toast(if (keyboardOnly) "Copied. Paste it with your keyboard's paste button." else "Copied. Paste it where you need it.")
+            return
+        }
+        val attempt = TextInserter.insert(this, node, text, field.web)
+        if (attempt == null) toast("Copied. Paste it where you need it.")
+        else main.postDelayed({ check(noteId, attempt) }, CHECK_MS)
+    }
+
+    /** A moment later: did the field really change? Some apps accept the text and ignore it. */
+    private fun check(noteId: String, attempt: TextInserter.Attempt) {
+        when (TextInserter.changed(attempt)) {
+            true -> app.notes.update(noteId) { it.copy(inserted = true) }
+            null -> {}   // the field is gone (sent, closed): nothing to check against; the note is in RedDot either way
+            false -> {
+                val again = if (attempt.pasted) null else TextInserter.paste(this, attempt.node, attempt.before, attempt.piece)
+                if (again != null) main.postDelayed({ check(noteId, again) }, CHECK_MS)
+                else toast("Copied. Paste it where you need it.")
+            }
+        }
     }
 
     // ---------------- BubbleView.Listener: moving the dot ----------------
@@ -264,6 +300,7 @@ class BubbleService : AccessibilityService(), BubbleView.Listener {
     companion object {
         const val SOURCE = "bubble"
         const val SETTLE_MS = 120L
+        const val CHECK_MS = 400L                     // an app redraws a changed field well within this
         const val MAX_RECORDING_MS = 5 * 60 * 1000L   // a forgotten hands-free recording ends after 5 minutes
     }
 }

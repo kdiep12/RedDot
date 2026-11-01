@@ -2,8 +2,10 @@ package io.github.kdiep12.reddot
 
 import android.app.Application
 import android.content.Context
+import io.github.kdiep12.reddot.bubble.FieldFinder
 import io.github.kdiep12.reddot.net.ServerClient
 import io.github.kdiep12.reddot.notes.NoteStore
+import kotlinx.coroutines.flow.MutableStateFlow
 import java.io.File
 
 /**
@@ -14,6 +16,8 @@ import java.io.File
  *     notes     every recording, kept on the phone until you delete it
  *     server    the RedDot server (Whisper + learning), over HTTP
  *     dictation record -> save -> transcribe, for the bubble and for the big dot alike
+ *     lastField what the bubble last found as the field you type in (no text): Settings shows
+ *               it, for when the dot doesn't appear in some app
  */
 class RedDotApp : Application() {
     lateinit var settings: Settings
@@ -24,6 +28,7 @@ class RedDotApp : Application() {
         private set
     lateinit var dictation: Dictation
         private set
+    val lastField = MutableStateFlow<FieldFinder.Report?>(null)
 
     override fun onCreate() {
         super.onCreate()

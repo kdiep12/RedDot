@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- What the bubble listens to: focus moving to a field, taps, windows and the keyboard
-     appearing or going away. Not text changes or screen content changes: it doesn't need them. -->
+     appearing or going away, and the cursor moving or text changing in a field. The last two
+     find fields that Android's own focus doesn't report (Compose, web editors) and tell a
+     password field apart; the bubble never reads the text in these events. Not screen content
+     changes: it doesn't need them. -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
-    android:accessibilityEventTypes="typeViewFocused|typeViewClicked|typeWindowStateChanged|typeWindowsChanged|typeViewTextSelectionChanged"
+    android:accessibilityEventTypes="typeViewFocused|typeViewClicked|typeWindowStateChanged|typeWindowsChanged|typeViewTextSelectionChanged|typeViewTextChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:accessibilityFlags="flagRetrieveInteractiveWindows"
     android:canRetrieveWindowContent="true"
