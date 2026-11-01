@@ -39,6 +39,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Settings
@@ -68,6 +70,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -379,6 +382,7 @@ private fun SetupCard(setup: Setup, onSettings: () -> Unit) {
     val context = LocalContext.current
     val askMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { setup.micOk = it }
     val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { setup.notificationsOk = it }
+    var explainBubble by rememberSaveable { mutableStateOf(false) }
     if (setup.complete) {
         Text("${setup.server} · bubble on", style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -404,7 +408,7 @@ private fun SetupCard(setup: Setup, onSettings: () -> Unit) {
                      "open App info, tap ⋮ in the top corner, choose Allow restricted settings, then try again.",
                     style = MaterialTheme.typography.bodySmall)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { context.startActivity(Intent(AndroidSettings.ACTION_ACCESSIBILITY_SETTINGS)) }) { Text("Accessibility") }
+                    Button(onClick = { explainBubble = true }) { Text("Accessibility") }
                     OutlinedButton(onClick = {
                         context.startActivity(Intent(AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS,
                             Uri.fromParts("package", context.packageName, null)))
@@ -413,6 +417,44 @@ private fun SetupCard(setup: Setup, onSettings: () -> Unit) {
             }
         }
     }
+    if (explainBubble) BubbleDisclosure(
+        onAgree = {
+            explainBubble = false
+            context.startActivity(Intent(AndroidSettings.ACTION_ACCESSIBILITY_SETTINGS))
+        },
+        onNotNow = { explainBubble = false },
+    )
+}
+
+/**
+ * What the voice bubble sees and what RedDot does with it, shown *before* Android's
+ * Accessibility settings open. Google Play requires this of an accessibility service that isn't
+ * an aid for a disability: a plain account of the data, and a clear yes. Tapping outside the
+ * dialog or going back counts as "Not now", never as a yes.
+ */
+@Composable
+private fun BubbleDisclosure(onAgree: () -> Unit, onNotNow: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onNotNow,
+        title = { Text("Turn on the voice bubble?") },
+        text = {
+            // Scrolls: on a small phone with large text the explanation is taller than the dialog.
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("The bubble is an accessibility service: Android's way of letting an app notice where you type " +
+                     "in other apps, and type for you. While it's on, RedDot is told when you move into a text field " +
+                     "in any app, and sees:")
+                Text("• that text field, and the text already in it, so your words go in at the cursor with the right spaces")
+                Text("• the name of the app the field is in, to label the note on this phone (\"in Claude\")")
+                Text("• whether the keyboard is showing, to put the dot just above it")
+                Text("RedDot uses this only to show the dot and to type what you dictate into that field. It doesn't " +
+                     "read or send anything else on your screen, and it stays out of password fields. Your recordings " +
+                     "go only to your own RedDot server, the one in Settings.")
+                Text("After Agree, Android's Accessibility settings open: choose RedDot voice bubble and turn it on.")
+            }
+        },
+        confirmButton = { TextButton(onClick = onAgree) { Text("Agree") } },
+        dismissButton = { TextButton(onClick = onNotNow) { Text("Not now") } },
+    )
 }
 
 @Composable

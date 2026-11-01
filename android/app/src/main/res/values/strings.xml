@@ -2,5 +2,5 @@
 <resources>
     <string name="app_name">RedDot</string>
     <string name="bubble_service_label">RedDot voice bubble</string>
-    <string name="bubble_service_description">Shows the red dot when you type in another app. Hold the dot and speak: RedDot sends the recording to your own RedDot server and types the text into the field.\n\nRedDot uses this permission to see which text field is focused and to write into it. It doesn\'t read or send anything else on your screen.</string>
+    <string name="bubble_service_description">Shows the red dot when you type in another app. Hold the dot and speak: RedDot sends the recording to your own RedDot server and types the text into the field.\n\nWith it, RedDot is told when you move into a text field in any app, and sees that field and its text (to put your words in at the cursor), the name of its app (to label the note on your phone) and whether the keyboard is showing (to put the dot above it). It doesn\'t read or send anything else on your screen, and it stays out of password fields.</string>
 </resources>

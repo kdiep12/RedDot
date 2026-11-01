@@ -29,8 +29,8 @@ android {
         applicationId = "io.github.kdiep12.reddot"
         minSdk = 29          // Android 10
         targetSdk = 36       // Android 16: what Google Play requires of new apps and updates since 2026-08-31
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
         buildConfigField("String", "DEFAULT_SERVER_URL", "\"${localProps.getProperty("reddot.serverUrl", "")}\"")
     }
 
